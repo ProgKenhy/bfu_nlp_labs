@@ -56,20 +56,41 @@ def get_day_of_week(date):
 
 
 def parse_schedule(json_file_path, current_datetime=None):
-	"""
-	Основная функция парсинга расписания
-
-	Args:
-		json_file_path: путь к JSON файлу
-		current_datetime: текущие дата и время (если None, используется datetime.now())
-
-	Returns:
-		list: список словарей со свободными слотами
-	"""
+	"""Основная функция парсинга расписания"""
 	with open(json_file_path, 'r', encoding='utf-8') as f:
 		data = json.load(f)
 
-	response = data.get('response', {})
+	# Проверяем структуру данных
+	if 'hospitals' in data:
+		# Структура 1: с hospitals
+		hospitals = data.get('hospitals', [])
+		if not hospitals:
+			print("Нет данных о больницах")
+			return []
+
+		doctors = hospitals[0].get('doctors', [])
+		if not doctors:
+			print("Нет данных о врачах")
+			return []
+
+		doctor = doctors[0]
+		schedule_data = doctor.get('schedule_data', {})
+
+		if schedule_data.get('status') != 'ok':
+			print("Статус расписания не 'ok'")
+			return []
+
+		response = schedule_data.get('response', {})
+		search_period = data.get('search_period', {})
+
+	elif 'response' in data:
+		# Структура 2: простая (как в data.json)
+		response = data.get('response', {})
+		search_period = {}
+	else:
+		print("Неизвестная структура JSON")
+		return []
+
 	times = response.get('times', [])
 	busy = response.get('busy', [])
 	resources = response.get('resources', [])
@@ -89,18 +110,20 @@ def parse_schedule(json_file_path, current_datetime=None):
 			'specialty': res.get('EMP_SPEC', ''),
 			'cabinet': res.get('CAB_NAME', ''),
 			'department': res.get('DEP_NAME', ''),
-			'start_date': parse_date(res.get('START_DATE', '')),
-			'record_period': int(res.get('RECORD_PERIOD', 14))
+			'record_period': int(res.get('RECORD_PERIOD', 30))
 		}
 
 	# Создаем словарь расписания по дням недели
 	schedule_by_day = defaultdict(list)
-
 	for time_entry in times:
 		day_number = time_entry.get('DAY_NUMBER')
 		time_begin = time_entry.get('TIME_BEGIN_S')
 		time_end = time_entry.get('TIME_END_S')
 		slot_duration = int(time_entry.get('RTIME_PRIM', 30))
+
+		# Проверяем корректность данных
+		if not all([day_number, time_begin, time_end]):
+			continue
 
 		schedule_by_day[day_number].append({
 			'time_begin': time_begin,
@@ -108,9 +131,10 @@ def parse_schedule(json_file_path, current_datetime=None):
 			'slot_duration': slot_duration
 		})
 
+	print(f"Расписание по дням недели: {dict(schedule_by_day)}")
+
 	# Создаем множество занятых слотов (только со статусом "0" - занято)
 	busy_slots = set()
-
 	for busy_entry in busy:
 		# SERV_STATUS "0" означает занято
 		if busy_entry.get('SERV_STATUS') == '0':
@@ -118,32 +142,44 @@ def parse_schedule(json_file_path, current_datetime=None):
 			hour = busy_entry.get('REC_DATE_HOUR')
 			minute = busy_entry.get('REC_DATE_MIN')
 
+			if not all([date_str, hour, minute]):
+				continue
+
 			# Форматируем время с ведущими нулями
 			time_slot = f"{hour.zfill(2)}:{minute.zfill(2)}"
 			slot_key = f"{date_str} {time_slot}"
 			busy_slots.add(slot_key)
 
+	# Для отладки: выводим количество занятых слотов
+	print(f"Найдено занятых слотов: {len(busy_slots)}")
+
 	# Генерируем все возможные слоты и находим свободные
 	free_slots = []
 
 	# Определяем диапазон дат для проверки
-	# Используем период записи из настроек
-	record_period = resource_info.get('record_period', 14)
+	if search_period:
+		# Используем search_period из JSON
+		start_date = parse_date(search_period.get('date_begin', '05.02.2026'))
+		end_date = parse_date(search_period.get('date_end', '30.02.2026'))
+		print(f"Используем search_period из JSON")
+	else:
+		# Или используем период записи из настроек
+		record_period = resource_info.get('record_period', 30)
+		start_date = current_datetime.replace(hour=0, minute=0, second=0, microsecond=0)
+		end_date = start_date + timedelta(days=record_period)
+		print(f"Используем record_period: {record_period} дней")
 
-	# Начинаем с текущей даты
-	current_date = current_datetime.date()
-	current_date = datetime.combine(current_date, datetime.min.time())
-
-	# Конечная дата = текущая дата + период записи
-	end_date = current_date + timedelta(days=record_period)
-
-	print(f"Период записи: {record_period} дней")
-	print(f"Диапазон дат: {current_date.strftime('%d.%m.%Y')} - {end_date.strftime('%d.%m.%Y')}\n")
+	print(f"Диапазон дат: {start_date.strftime('%d.%m.%Y')} - {end_date.strftime('%d.%m.%Y')}")
 
 	# Проходим по всем датам в диапазоне
+	current_date = start_date
 	while current_date <= end_date:
 		day_of_week = get_day_of_week(current_date)
 		date_str = current_date.strftime("%d.%m.%Y")
+		day_name = current_date.strftime('%A')
+
+		# Для отладки
+		# print(f"\nПроверяем дату: {date_str} ({day_name}, день недели: {day_of_week})")
 
 		# Проверяем, есть ли расписание для этого дня недели
 		if day_of_week in schedule_by_day:
@@ -155,6 +191,10 @@ def parse_schedule(json_file_path, current_datetime=None):
 					schedule_entry['slot_duration']
 				)
 
+				# Для отладки
+				# print(f"  Интервал: {schedule_entry['time_begin']}-{schedule_entry['time_end']}")
+				# print(f"  Возможные слоты: {slots}")
+
 				# Проверяем каждый слот
 				for time_slot in slots:
 					slot_key = f"{date_str} {time_slot}"
@@ -164,6 +204,7 @@ def parse_schedule(json_file_path, current_datetime=None):
 
 					# Пропускаем прошедшие слоты
 					if slot_datetime <= current_datetime:
+						# print(f"    Пропущен прошедший слот: {slot_key}")
 						continue
 
 					# Если слот не в списке занятых, он свободен
@@ -172,17 +213,21 @@ def parse_schedule(json_file_path, current_datetime=None):
 							'date': date_str,
 							'time': time_slot,
 							'datetime': slot_key,
-							'day_of_week': current_date.strftime('%A'),
+							'day_of_week': day_name,
 							'doctor': resource_info.get('doctor', ''),
 							'cabinet': resource_info.get('cabinet', ''),
 							'department': resource_info.get('department', '')
 						})
+					# print(f"    Найден свободный слот: {slot_key}")
+				# else:
+				# print(f"    Занятый слот: {slot_key}")
 
 		current_date += timedelta(days=1)
 
 	# Сортируем по дате и времени
 	free_slots.sort(key=lambda x: (parse_date(x['date']), x['time']))
 
+	print(f"Найдено свободных слотов: {len(free_slots)}")
 	return free_slots
 
 
@@ -238,7 +283,7 @@ def print_summary(free_slots):
 
 if __name__ == "__main__":
 	# Входной и выходной файлы
-	input_file = "raw_schedule_data.json"
+	input_file = "gvardeysk_data.json"
 	output_file = "free_slots.csv"
 
 	print("Начало парсинга расписания...")
