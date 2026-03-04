@@ -134,7 +134,7 @@ class MedReg39RawDataCollector:
 			return None
 
 	def collect_all_data(self, date_begin: str = None, date_end: str = None,
-						 delay: float = 1.0) -> Dict[str, Any]:
+						 delay: float = 0.5) -> Dict[str, Any]:
 		"""
 		Сбор всех данных по врачам из указанных поликлиник
 		Возвращает абсолютно сырые данные без анализа
@@ -241,16 +241,16 @@ class MedReg39RawDataCollector:
 # Основная функция
 def main():
 	# Конфигурация
-	USER_FNAME = "Черешенко"
+	USER_FNAME = ""
 	USER_POLIS = ""  # Обязательно нужно внести номер полиса ОМС!
-	OUTPUT_FILE = "gvardeysk_data.json"
+	OUTPUT_FILE = "big_data.json"
 
 	# Список ID поликлиник (можно добавлять сколько угодно)
 	HOSPITAL_IDS = [
-		# "77945247",  # Областная стоматологическая поликлиника
-		# "5858772243",  # Центродент
+		"77945247",  # Областная стоматологическая поликлиника
+		"5858772243",  # Центродент
 		# "75791579",  # Гурьевская
-		"77965272" # Гвардейская
+		# "77965272" # Гвардейская
 		# # Добавьте другие ID по необходимости
 	]
 
