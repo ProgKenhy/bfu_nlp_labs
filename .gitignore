@@ -5,3 +5,5 @@
 *checkpoint*
 aclImdb*
 *.txt
+*.h5
+*.npy
