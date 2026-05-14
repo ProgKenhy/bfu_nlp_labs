@@ -9,3 +9,4 @@ aclImdb*
 *.npy
 *.safetensors
 *.bin
+*.zip
