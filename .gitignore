@@ -10,3 +10,4 @@ aclImdb*
 *.safetensors
 *.bin
 *.zip
+final_work/*.png
